@@ -7,5 +7,6 @@ router.post('/', orderController.createOrder);
 router.get('/pending', orderController.getPendingOrders);
 router.patch('/:id/deliver', orderController.markAsDelivered);
 router.get('/history', orderController.getOrderHistory);
+router.delete('/:id', orderController.deleteOrder);
 
 module.exports = router;

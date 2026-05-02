@@ -79,9 +79,48 @@ const getLedgerHistory = async (req, res) => {
   }
 };
 
+const deleteEntry = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const query = `
+      DELETE FROM daily_ledger
+      WHERE id = $1
+        AND entry_date = CURRENT_DATE
+        AND is_closed = FALSE
+      RETURNING *;
+    `;
+    const { rows } = await db.query(query, [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Registro no encontrado o no se puede eliminar' });
+    }
+    res.status(200).json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error('Error en deleteEntry:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar registro' });
+  }
+};
+
+const deleteDay = async (req, res) => {
+  const { date } = req.params;
+  try {
+    const query = `
+      DELETE FROM daily_ledger 
+      WHERE entry_date = $1;
+    `;
+    await db.query(query, [date]);
+    res.status(200).json({ success: true, message: 'Día eliminado correctamente' });
+  } catch (error) {
+    console.error('Error en deleteDay:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar el día' });
+  }
+};
+
+
 module.exports = {
   getTodayEntries,
   createEntry,
   closeDay,
   getLedgerHistory,
+  deleteEntry,
+  deleteDay,
 };

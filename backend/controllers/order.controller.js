@@ -89,9 +89,27 @@ const getOrderHistory = async (req, res) => {
   }
 };
 
+const deleteOrder = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const query = 'DELETE FROM orders WHERE id = $1 RETURNING *;';
+    const { rows } = await db.query(query, [id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+    
+    res.status(200).json({ success: true, message: 'Pedido eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error en deleteOrder:', error);
+    res.status(500).json({ success: false, message: 'Error al eliminar el pedido' });
+  }
+};
+
 module.exports = {
   createOrder,
   getPendingOrders,
   markAsDelivered,
-  getOrderHistory
+  getOrderHistory,
+  deleteOrder
 };
