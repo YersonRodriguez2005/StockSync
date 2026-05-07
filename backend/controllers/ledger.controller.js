@@ -1,14 +1,20 @@
 const db = require('../config/db');
 
+// Helper: fecha actual en zona Colombia
+const getColombiaDate = () => {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }); // 'en-CA' da formato YYYY-MM-DD
+};
+
 const getTodayEntries = async (req, res) => {
   try {
+    const today = getColombiaDate(); // ← fecha real en Colombia, no UTC
     const query = `
       SELECT * FROM daily_ledger 
-      WHERE entry_date = CURRENT_DATE
+      WHERE entry_date = $1
         AND is_closed = FALSE
       ORDER BY created_at ASC;
     `;
-    const { rows } = await db.query(query);
+    const { rows } = await db.query(query, [today]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error en getTodayEntries:', error);
@@ -18,13 +24,14 @@ const getTodayEntries = async (req, res) => {
 
 const createEntry = async (req, res) => {
   const { supplier_name, amount, daily_target } = req.body;
+  const today = getColombiaDate(); // ← siempre guardar con fecha Colombia
   try {
     const query = `
-      INSERT INTO daily_ledger (supplier_name, amount, daily_target) 
-      VALUES ($1, $2, $3) 
+      INSERT INTO daily_ledger (supplier_name, amount, daily_target, entry_date) 
+      VALUES ($1, $2, $3, $4) 
       RETURNING *;
     `;
-    const { rows } = await db.query(query, [supplier_name, amount, daily_target || 0]);
+    const { rows } = await db.query(query, [supplier_name, amount, daily_target || 0, today]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     console.error('Error en createEntry:', error);
@@ -32,16 +39,16 @@ const createEntry = async (req, res) => {
   }
 };
 
-// Marca todos los registros activos de HOY como cerrados
 const closeDay = async (req, res) => {
+  const today = getColombiaDate();
   try {
     const query = `
       UPDATE daily_ledger
       SET is_closed = TRUE
-      WHERE entry_date = CURRENT_DATE
+      WHERE entry_date = $1
         AND is_closed = FALSE;
     `;
-    await db.query(query);
+    await db.query(query, [today]);
     res.status(200).json({ success: true, message: 'Día cerrado correctamente' });
   } catch (error) {
     console.error('Error en closeDay:', error);
@@ -49,7 +56,20 @@ const closeDay = async (req, res) => {
   }
 };
 
-// Historial de cierres de caja agrupados por fecha
+// Cierre automático — llamado por el cron a las 10pm Colombia
+const autoCloseDay = async () => {
+  const today = getColombiaDate();
+  try {
+    await db.query(
+      `UPDATE daily_ledger SET is_closed = TRUE WHERE entry_date = $1 AND is_closed = FALSE`,
+      [today]
+    );
+    console.log(`[CRON] Cierre automático ejecutado para ${today}`);
+  } catch (error) {
+    console.error('[CRON] Error en cierre automático:', error);
+  }
+};
+
 const getLedgerHistory = async (req, res) => {
   try {
     const query = `
@@ -81,15 +101,16 @@ const getLedgerHistory = async (req, res) => {
 
 const deleteEntry = async (req, res) => {
   const { id } = req.params;
+  const today = getColombiaDate();
   try {
     const query = `
       DELETE FROM daily_ledger
       WHERE id = $1
-        AND entry_date = CURRENT_DATE
+        AND entry_date = $2
         AND is_closed = FALSE
       RETURNING *;
     `;
-    const { rows } = await db.query(query, [id]);
+    const { rows } = await db.query(query, [id, today]);
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Registro no encontrado o no se puede eliminar' });
     }
@@ -103,11 +124,7 @@ const deleteEntry = async (req, res) => {
 const deleteDay = async (req, res) => {
   const { date } = req.params;
   try {
-    const query = `
-      DELETE FROM daily_ledger 
-      WHERE entry_date = $1;
-    `;
-    await db.query(query, [date]);
+    await db.query(`DELETE FROM daily_ledger WHERE entry_date = $1`, [date]);
     res.status(200).json({ success: true, message: 'Día eliminado correctamente' });
   } catch (error) {
     console.error('Error en deleteDay:', error);
@@ -115,11 +132,11 @@ const deleteDay = async (req, res) => {
   }
 };
 
-
 module.exports = {
   getTodayEntries,
   createEntry,
   closeDay,
+  autoCloseDay,
   getLedgerHistory,
   deleteEntry,
   deleteDay,

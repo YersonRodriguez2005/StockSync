@@ -5,6 +5,14 @@ require('dotenv').config();
 const orderRoutes = require('./routes/order.routes');
 const productsRoutes = require('./routes/product.routes');
 const ledgerRoutes = require('./routes/ledger.routes');
+const cron = require('node-cron');
+const { autoCloseDay } = require('./controllers/ledger.controller');
+
+cron.schedule('0 3 * * *', autoCloseDay, {
+  timezone: 'America/Bogota'
+});
+
+console.log('[CRON] Cierre automático de caja programado para las 10:00pm hora Colombia');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
