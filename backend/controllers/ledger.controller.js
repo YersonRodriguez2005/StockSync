@@ -1,20 +1,29 @@
 const db = require('../config/db');
 
-// Helper: fecha actual en zona Colombia
+// Helper: fecha actual en zona Colombia (Garantizado YYYY-MM-DD)
 const getColombiaDate = () => {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }); // 'en-CA' da formato YYYY-MM-DD
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+  return `${year}-${month}-${day}`;
 };
 
 const getTodayEntries = async (req, res) => {
   try {
-    const today = getColombiaDate(); // ← fecha real en Colombia, no UTC
     const query = `
       SELECT * FROM daily_ledger 
-      WHERE entry_date = $1
+      WHERE entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')
         AND is_closed = FALSE
       ORDER BY created_at ASC;
     `;
-    const { rows } = await db.query(query, [today]);
+    const { rows } = await db.query(query);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error en getTodayEntries:', error);
@@ -24,14 +33,13 @@ const getTodayEntries = async (req, res) => {
 
 const createEntry = async (req, res) => {
   const { supplier_name, amount, daily_target } = req.body;
-  const today = getColombiaDate(); // ← siempre guardar con fecha Colombia
   try {
     const query = `
       INSERT INTO daily_ledger (supplier_name, amount, daily_target, entry_date) 
-      VALUES ($1, $2, $3, $4) 
+      VALUES ($1, $2, $3, DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')) 
       RETURNING *;
     `;
-    const { rows } = await db.query(query, [supplier_name, amount, daily_target || 0, today]);
+    const { rows } = await db.query(query, [supplier_name, amount, daily_target || 0]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     console.error('Error en createEntry:', error);
@@ -40,15 +48,14 @@ const createEntry = async (req, res) => {
 };
 
 const closeDay = async (req, res) => {
-  const today = getColombiaDate();
   try {
     const query = `
       UPDATE daily_ledger
       SET is_closed = TRUE
-      WHERE entry_date = $1
+      WHERE entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')
         AND is_closed = FALSE;
     `;
-    await db.query(query, [today]);
+    await db.query(query);
     res.status(200).json({ success: true, message: 'Día cerrado correctamente' });
   } catch (error) {
     console.error('Error en closeDay:', error);
@@ -56,15 +63,15 @@ const closeDay = async (req, res) => {
   }
 };
 
-// Cierre automático — llamado por el cron a las 10pm Colombia
 const autoCloseDay = async () => {
-  const today = getColombiaDate();
   try {
-    await db.query(
-      `UPDATE daily_ledger SET is_closed = TRUE WHERE entry_date = $1 AND is_closed = FALSE`,
-      [today]
-    );
-    console.log(`[CRON] Cierre automático ejecutado para ${today}`);
+    await db.query(`
+      UPDATE daily_ledger 
+      SET is_closed = TRUE 
+      WHERE entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota') 
+        AND is_closed = FALSE
+    `);
+    console.log(`[CRON] Cierre automático ejecutado correctamente.`);
   } catch (error) {
     console.error('[CRON] Error en cierre automático:', error);
   }
@@ -101,16 +108,15 @@ const getLedgerHistory = async (req, res) => {
 
 const deleteEntry = async (req, res) => {
   const { id } = req.params;
-  const today = getColombiaDate();
   try {
     const query = `
       DELETE FROM daily_ledger
       WHERE id = $1
-        AND entry_date = $2
+        AND entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')
         AND is_closed = FALSE
       RETURNING *;
     `;
-    const { rows } = await db.query(query, [id, today]);
+    const { rows } = await db.query(query, [id]);
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Registro no encontrado o no se puede eliminar' });
     }

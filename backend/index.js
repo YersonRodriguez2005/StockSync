@@ -1,4 +1,4 @@
-// arhciov de inicio del backend
+// archivo de inicio del backend
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -8,7 +8,7 @@ const ledgerRoutes = require('./routes/ledger.routes');
 const cron = require('node-cron');
 const { autoCloseDay } = require('./controllers/ledger.controller');
 
-cron.schedule('0 3 * * *', autoCloseDay, {
+cron.schedule('0 22 * * *', autoCloseDay, {
   timezone: 'America/Bogota'
 });
 
