@@ -1,29 +1,25 @@
 const db = require('../config/db');
 
-// Helper: fecha actual en zona Colombia (Garantizado YYYY-MM-DD)
+// Helper 100% seguro para la hora de Colombia (ignora el reloj del servidor)
 const getColombiaDate = () => {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Bogota',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-  const parts = formatter.formatToParts(new Date());
-  const year = parts.find(p => p.type === 'year').value;
-  const month = parts.find(p => p.type === 'month').value;
-  const day = parts.find(p => p.type === 'day').value;
-  return `${year}-${month}-${day}`;
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const bogotaDate = new Date(utc - (3600000 * 5));
+  return bogotaDate.toISOString().split('T')[0];
 };
 
 const getTodayEntries = async (req, res) => {
   try {
+    const today = getColombiaDate();
     const query = `
-      SELECT * FROM daily_ledger 
-      WHERE entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')
+      SELECT id, supplier_name, amount, daily_target, is_closed, created_at,
+             TO_CHAR(entry_date, 'YYYY-MM-DD') AS entry_date 
+      FROM daily_ledger 
+      WHERE entry_date = $1
         AND is_closed = FALSE
       ORDER BY created_at ASC;
     `;
-    const { rows } = await db.query(query);
+    const { rows } = await db.query(query, [today]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error en getTodayEntries:', error);
@@ -33,13 +29,15 @@ const getTodayEntries = async (req, res) => {
 
 const createEntry = async (req, res) => {
   const { supplier_name, amount, daily_target } = req.body;
+  const today = getColombiaDate(); 
   try {
     const query = `
       INSERT INTO daily_ledger (supplier_name, amount, daily_target, entry_date) 
-      VALUES ($1, $2, $3, DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')) 
-      RETURNING *;
+      VALUES ($1, $2, $3, $4) 
+      RETURNING id, supplier_name, amount, daily_target, is_closed, created_at, 
+                TO_CHAR(entry_date, 'YYYY-MM-DD') AS entry_date;
     `;
-    const { rows } = await db.query(query, [supplier_name, amount, daily_target || 0]);
+    const { rows } = await db.query(query, [supplier_name, amount, daily_target || 0, today]);
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     console.error('Error en createEntry:', error);
@@ -48,14 +46,10 @@ const createEntry = async (req, res) => {
 };
 
 const closeDay = async (req, res) => {
+  const today = getColombiaDate();
   try {
-    const query = `
-      UPDATE daily_ledger
-      SET is_closed = TRUE
-      WHERE entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')
-        AND is_closed = FALSE;
-    `;
-    await db.query(query);
+    const query = `UPDATE daily_ledger SET is_closed = TRUE WHERE entry_date = $1 AND is_closed = FALSE;`;
+    await db.query(query, [today]);
     res.status(200).json({ success: true, message: 'Día cerrado correctamente' });
   } catch (error) {
     console.error('Error en closeDay:', error);
@@ -64,14 +58,10 @@ const closeDay = async (req, res) => {
 };
 
 const autoCloseDay = async () => {
+  const today = getColombiaDate();
   try {
-    await db.query(`
-      UPDATE daily_ledger 
-      SET is_closed = TRUE 
-      WHERE entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota') 
-        AND is_closed = FALSE
-    `);
-    console.log(`[CRON] Cierre automático ejecutado correctamente.`);
+    await db.query(`UPDATE daily_ledger SET is_closed = TRUE WHERE entry_date = $1 AND is_closed = FALSE`, [today]);
+    console.log(`[CRON] Cierre automático ejecutado para ${today}`);
   } catch (error) {
     console.error('[CRON] Error en cierre automático:', error);
   }
@@ -81,7 +71,7 @@ const getLedgerHistory = async (req, res) => {
   try {
     const query = `
       SELECT
-        entry_date,
+        TO_CHAR(entry_date, 'YYYY-MM-DD') AS entry_date,
         MAX(daily_target) FILTER (WHERE supplier_name = 'INICIO_CAJA') AS daily_target,
         SUM(amount) FILTER (WHERE supplier_name != 'INICIO_CAJA') AS total_spent,
         COUNT(*) FILTER (WHERE supplier_name != 'INICIO_CAJA') AS total_entries,
@@ -108,17 +98,12 @@ const getLedgerHistory = async (req, res) => {
 
 const deleteEntry = async (req, res) => {
   const { id } = req.params;
+  const today = getColombiaDate();
   try {
-    const query = `
-      DELETE FROM daily_ledger
-      WHERE id = $1
-        AND entry_date = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')
-        AND is_closed = FALSE
-      RETURNING *;
-    `;
-    const { rows } = await db.query(query, [id]);
+    const query = `DELETE FROM daily_ledger WHERE id = $1 AND entry_date = $2 AND is_closed = FALSE RETURNING *;`;
+    const { rows } = await db.query(query, [id, today]);
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Registro no encontrado o no se puede eliminar' });
+      return res.status(404).json({ success: false, message: 'Registro no encontrado' });
     }
     res.status(200).json({ success: true, data: rows[0] });
   } catch (error) {
