@@ -32,8 +32,8 @@ const createEntry = async (req, res) => {
   const today = getColombiaDate(); 
   try {
     const query = `
-      INSERT INTO daily_ledger (supplier_name, amount, daily_target, entry_date) 
-      VALUES ($1, $2, $3, $4) 
+      INSERT INTO daily_ledger (supplier_name, amount, daily_target, entry_date, is_closed) 
+      VALUES ($1, $2, $3, $4, FALSE) 
       RETURNING id, supplier_name, amount, daily_target, is_closed, created_at, 
                 TO_CHAR(entry_date, 'YYYY-MM-DD') AS entry_date;
     `;
