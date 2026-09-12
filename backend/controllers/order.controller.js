@@ -1,115 +1,43 @@
-const db = require('../config/db');
+const orderModel = require('../models/order.model');
+const { createOrderSchema, paginationSchema } = require('../schemas/order.schema');
+const catchAsync = require('../utils/catchAsync');
 
-// 1. Crear un nuevo pedido
-const createOrder = async (req, res) => {
-  const { supplier_name, total_value, delivery_date } = req.body;
-  
-  try {
-    // Usamos $1, $2 para evitar SQL Injection. RETURNING * devuelve el registro creado.
-    const query = `
-      INSERT INTO orders (supplier_name, total_value, delivery_date) 
-      VALUES ($1, $2, $3) 
-      RETURNING *;
-    `;
-    const values = [supplier_name, total_value, delivery_date];
-    const { rows } = await db.query(query, values);
-    
-    res.status(201).json({ success: true, data: rows[0] });
-  } catch (error) {
-    console.error('Error en createOrder:', error);
-    res.status(500).json({ success: false, message: 'Error interno del servidor' });
-  }
-};
+const createOrder = catchAsync(async (req, res) => {
+  const validatedData = createOrderSchema.parse(req.body);
+  const newOrder = await orderModel.create(validatedData);
+  res.status(201).json({ success: true, data: newOrder });
+});
 
-// 2. Obtener pedidos pendientes (Para la vista de Calendario)
-const getPendingOrders = async (req, res) => {
-  try {
-    const query = `
-      SELECT * FROM orders 
-      WHERE status = 'PENDING' 
-      ORDER BY delivery_date ASC;
-    `;
-    const { rows } = await db.query(query);
-    res.status(200).json({ success: true, data: rows });
-  } catch (error) {
-    console.error('Error en getPendingOrders:', error);
-    res.status(500).json({ success: false, message: 'Error al obtener pedidos' });
-  }
-};
+const getPendingOrders = catchAsync(async (req, res) => {
+  const orders = await orderModel.getPending();
+  res.status(200).json({ success: true, data: orders });
+});
 
-// 3. Marcar pedido como entregado
-const markAsDelivered = async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const query = `
-      UPDATE orders 
-      SET status = 'DELIVERED' 
-      WHERE id = $1 
-      RETURNING *;
-    `;
-    const { rows } = await db.query(query, [id]);
-    
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
-    }
-    
-    res.status(200).json({ success: true, data: rows[0] });
-  } catch (error) {
-    console.error('Error en markAsDelivered:', error);
-    res.status(500).json({ success: false, message: 'Error al actualizar el pedido' });
-  }
-};
+const markAsDelivered = catchAsync(async (req, res) => {
+  const updatedOrder = await orderModel.markAsDelivered(req.params.id);
+  if (!updatedOrder) return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+  res.status(200).json({ success: true, data: updatedOrder });
+});
 
-const getOrderHistory = async (req, res) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 15;
+const getOrderHistory = catchAsync(async (req, res) => {
+  // Zod se encarga de parsear y proveer los valores por defecto (page=1, limit=15)
+  const { page, limit } = paginationSchema.parse(req.query);
   const offset = (page - 1) * limit;
 
-  try {
-    const query = `
-      SELECT * FROM orders 
-      WHERE status = 'DELIVERED' 
-      AND delivery_date >= CURRENT_DATE - INTERVAL '1 month'
-      ORDER BY delivery_date DESC
-      LIMIT $1 OFFSET $2;
-    `;
-    
-    const { rows } = await db.query(query, [limit, offset]);
-    
-    res.status(200).json({
-      success: true,
-      data: rows,
-      currentPage: page,
-      hasMore: rows.length === limit
-    });
-  } catch (error) {
-    console.error('Error en getOrderHistory:', error);
-    res.status(500).json({ success: false, message: 'Error al obtener el historial de pedidos' });
-  }
-};
+  const orders = await orderModel.getHistory(limit, offset);
+  
+  res.status(200).json({
+    success: true,
+    data: orders,
+    currentPage: page,
+    hasMore: orders.length === limit
+  });
+});
 
-const deleteOrder = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const query = 'DELETE FROM orders WHERE id = $1 RETURNING *;';
-    const { rows } = await db.query(query, [id]);
-    
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
-    }
-    
-    res.status(200).json({ success: true, message: 'Pedido eliminado exitosamente' });
-  } catch (error) {
-    console.error('Error en deleteOrder:', error);
-    res.status(500).json({ success: false, message: 'Error al eliminar el pedido' });
-  }
-};
+const deleteOrder = catchAsync(async (req, res) => {
+  const deletedOrder = await orderModel.remove(req.params.id);
+  if (!deletedOrder) return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+  res.status(200).json({ success: true, message: 'Pedido eliminado exitosamente' });
+});
 
-module.exports = {
-  createOrder,
-  getPendingOrders,
-  markAsDelivered,
-  getOrderHistory,
-  deleteOrder
-};
+module.exports = { createOrder, getPendingOrders, markAsDelivered, getOrderHistory, deleteOrder };
